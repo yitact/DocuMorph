@@ -260,3 +260,22 @@ git commit -m "docs: add comprehensive project README, architecture guide, and s
 git push origin main
 
 ```
+Step 1: Configure Dependencies
+
+Add these dependencies to your pubspec.yaml file:
+
+dependencies:
+  flutter:
+    sdk: flutter
+  image_picker: ^1.1.2
+  google_mlkit_text_recognition: ^0.14.0
+  share_plus: ^10.0.0
+  flutter/services.dart:
+  ---
+  Step 2: Platform Permissions Setup
+  iOS (ios/Runner/Info.plist):
+
+<key>NSCameraUsageDescription</key>
+<string>This app requires camera access to scan documents.</string>
+<key>NSPhotoLibraryUsageDescription</key>
+<string>This app requires photo library access to import images.</string>
