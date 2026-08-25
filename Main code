@@ -1,0 +1,676 @@
+dependencies:
+  flutter:
+    sdk: flutter
+  image_picker: ^1.1.2
+  google_mlkit_text_recognition: ^0.14.0
+  share_plus: ^10.0.0
+  flutter/services.dart:
+
+<key>NSCameraUsageDescription</key>
+<string>This app requires camera access to scan documents.</string>
+<key>NSPhotoLibraryUsageDescription</key>
+<string>This app requires photo library access to import images.</string>
+
+
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:share_plus/share_plus.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const DocumentScannerApp());
+}
+
+class DocumentScannerApp extends StatelessWidget {
+  const DocumentScannerApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'DocuScan & Convert',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.indigo,
+          brightness: Brightness.light,
+        ),
+        useMaterial3: true,
+      ),
+      home: const ScannerHomePage(),
+    );
+  }
+}
+
+class ScannerHomePage extends StatefulWidget {
+  const ScannerHomePage({super.key});
+
+  @override
+  State<ScannerHomePage> createState() => _ScannerHomePageState();
+}
+
+class _ScannerHomePageState extends State<ScannerHomePage> {
+  File? _imageFile;
+  String _extractedText = '';
+  bool _isProcessing = false;
+
+  final ImagePicker _picker = ImagePicker();
+  final TextRecognizer _textRecognizer =
+      TextRecognizer(script: TextRecognitionScript.latin);
+
+  @override
+  void dispose() {
+    _textRecognizer.close();
+    super.dispose();
+  }
+
+  Future<void> _pickAndProcessImage(ImageSource source) async {
+    try {
+      final XFile? pickedFile = await _picker.pickImage(
+        source: source,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        imageQuality: 90,
+      );
+
+      if (pickedFile == null) return;
+
+      setState(() {
+        _imageFile = File(pickedFile.path);
+        _isProcessing = true;
+        _extractedText = '';
+      });
+
+      // Process on-device OCR using Google ML Kit
+      final inputImage = InputImage.fromFilePath(pickedFile.path);
+      final RecognizedText recognizedText =
+          await _textRecognizer.processImage(inputImage);
+
+      setState(() {
+        _extractedText = recognizedText.text.trim().isEmpty
+            ? 'No readable text detected.'
+            : recognizedText.text;
+        _isProcessing = false;
+      });
+    } catch (e) {
+      setState(() => _isProcessing = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error scanning document: $e')),
+        );
+      }
+    }
+  }
+
+  void _copyToClipboard() {
+    if (_extractedText.isEmpty) return;
+    Clipboard.setData(ClipboardData(text: _extractedText));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Extracted text copied to clipboard!')),
+    );
+  }
+
+  void _shareDigitalText() {
+    if (_extractedText.isEmpty) return;
+    Share.share(
+      _extractedText,
+      subject: 'Digitized Document Content',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('DocuScan & Convert'),
+        actions: [
+          if (_extractedText.isNotEmpty &&
+              _extractedText != 'No readable text detected.') ...[
+            IconButton(
+              icon: const Icon(Icons.copy),
+              tooltip: 'Copy Text',
+              onPressed: _copyToClipboard,
+            ),
+            IconButton(
+              icon: const Icon(Icons.share),
+              tooltip: 'Share',
+              onPressed: _shareDigitalText,
+            ),
+          ]
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Image Preview Area
+            Container(
+              height: 220,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: _imageFile != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.file(_imageFile!, fit: BoxFit.cover),
+                    )
+                  : const Center(
+                      child: Text(
+                        'No document captured yet.\nUse the buttons below to start.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.black54),
+                      ),
+                    ),
+            ),
+            const SizedBox(height: 16),
+
+            // Capture and Import Controls
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.camera_alt),
+                    label: const Text('Scan Camera'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: _isProcessing
+                        ? null
+                        : () => _pickAndProcessImage(ImageSource.camera),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.photo_library),
+                    label: const Text('Import Media'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: _isProcessing
+                        ? null
+                        : () => _pickAndProcessImage(ImageSource.gallery),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Extracted Results Section
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Digital Output (Editable)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                if (_isProcessing)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            Container(
+              constraints: const BoxConstraints(minHeight: 180),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: SelectableText(
+                _extractedText.isEmpty
+                    ? (_isProcessing
+                        ? 'Processing document with on-device OCR...'
+                        : 'Scanned text will appear here.')
+                    : _extractedText,
+                style: const TextStyle(fontSize: 14, height: 1.4),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+import 'dart:io';
+
+abstract class OcrService {
+  Future<String> recognizeText(File imageFile);
+  void dispose();
+}
+
+import 'dart:io';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'ocr_service.dart';
+
+class MlKitOcrService implements OcrService {
+  final TextRecognizer _recognizer =
+      TextRecognizer(script: TextRecognitionScript.latin);
+
+  @override
+  Future<String> recognizeText(File imageFile) async {
+    final inputImage = InputImage.fromFilePath(imageFile.path);
+    final RecognizedText recognizedText =
+        await _recognizer.processImage(inputImage);
+    return recognizedText.text.trim();
+  }
+
+  @override
+  void dispose() {
+    _recognizer.close();
+  }
+}
+
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:share_plus/share_plus.dart';
+import 'services/ocr_service.dart';
+import 'services/mlkit_ocr_service.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(DocumentScannerApp(ocrService: MlKitOcrService()));
+}
+
+class DocumentScannerApp extends StatelessWidget {
+  final OcrService ocrService;
+
+  const DocumentScannerApp({super.key, required this.ocrService});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'DocuScan & Convert',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+        useMaterial3: true,
+      ),
+      home: ScannerHomePage(ocrService: ocrService),
+    );
+  }
+}
+
+class ScannerHomePage extends StatefulWidget {
+  final OcrService ocrService;
+
+  const ScannerHomePage({super.key, required this.ocrService});
+
+  @override
+  State<ScannerHomePage> createState() => _ScannerHomePageState();
+}
+
+class _ScannerHomePageState extends State<ScannerHomePage> {
+  File? _imageFile;
+  String _extractedText = '';
+  bool _isProcessing = false;
+  final ImagePicker _picker = ImagePicker();
+
+  @override
+  void dispose() {
+    widget.ocrService.dispose();
+    super.dispose();
+  }
+
+  Future<void> _processImageFile(File file) async {
+    setState(() {
+      _imageFile = file;
+      _isProcessing = true;
+      _extractedText = '';
+    });
+
+    try {
+      final text = await widget.ocrService.recognizeText(file);
+      setState(() {
+        _extractedText = text.isEmpty ? 'No readable text detected.' : text;
+        _isProcessing = false;
+      });
+    } catch (e) {
+      setState(() => _isProcessing = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error scanning document: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickAndProcessImage(ImageSource source) async {
+    try {
+      final XFile? pickedFile = await _picker.pickImage(
+        source: source,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        imageQuality: 90,
+      );
+
+      if (pickedFile != null) {
+        await _processImageFile(File(pickedFile.path));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to acquire image: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool hasValidText = _extractedText.isNotEmpty &&
+        _extractedText != 'No readable text detected.';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('DocuScan & Convert'),
+        actions: [
+          if (hasValidText) ...[
+            IconButton(
+              key: const Key('copy_button'),
+              icon: const Icon(Icons.copy),
+              tooltip: 'Copy Text',
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: _extractedText));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Extracted text copied to clipboard!')),
+                );
+              },
+            ),
+            IconButton(
+              key: const Key('share_button'),
+              icon: const Icon(Icons.share),
+              tooltip: 'Share',
+              onPressed: () => Share.share(_extractedText),
+            ),
+          ]
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossFrameworkCrossAxisAlignment(),
+          children: [
+            Container(
+              height: 200,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: _imageFile != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.file(_imageFile!, fit: BoxFit.cover),
+                    )
+                  : const Center(
+                      child: Text(
+                        'No document captured yet.\nUse the buttons below to start.',
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    key: const Key('scan_camera_btn'),
+                    icon: const Icon(Icons.camera_alt),
+                    label: const Text('Scan Camera'),
+                    onPressed: _isProcessing
+                        ? null
+                        : () => _pickAndProcessImage(ImageSource.camera),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('import_media_btn'),
+                    icon: const Icon(Icons.photo_library),
+                    label: const Text('Import Media'),
+                    onPressed: _isProcessing
+                        ? null
+                        : () => _pickAndProcessImage(ImageSource.gallery),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Digital Output (Editable)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                if (_isProcessing)
+                  const SizedBox(
+                    key: Key('loading_indicator'),
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Container(
+              constraints: const BoxConstraints(minHeight: 160),
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: SelectableText(
+                _extractedText.isEmpty
+                    ? (_isProcessing
+                        ? 'Processing document with on-device OCR...'
+                        : 'Scanned text will appear here.')
+                    : _extractedText,
+                key: const Key('ocr_output_text'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+CrossAxisAlignment CrossFrameworkCrossAxisAlignment() => CrossAxisAlignment.stretch;
+
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:your_app_name/main.dart';
+import 'package:your_app_name/services/ocr_service.dart';
+
+class MockOcrService implements OcrService {
+  final String stubbedText;
+  final Duration delay;
+
+  MockOcrService({
+    this.stubbedText = 'Invoice #1042\nTotal Due: \$450.00',
+    this.delay = Duration.zero,
+  });
+
+  @override
+  Future<String> recognizeText(File imageFile) async {
+    if (delay > Duration.zero) {
+      await Future.delayed(delay);
+    }
+    return stubbedText;
+  }
+
+  @override
+  void dispose() {}
+}
+
+void main() {
+  testWidgets('Initial UI renders placeholder and scan triggers',
+      (WidgetTester tester) async {
+    final mockService = MockOcrService();
+
+    await tester.pumpWidget(DocumentScannerApp(ocrService: mockService));
+
+    // Verify initial placeholders
+    expect(find.text('DocuScan & Convert'), findsOneWidget);
+    expect(find.text('No document captured yet.\nUse the buttons below to start.'), findsOneWidget);
+    expect(find.text('Scanned text will appear here.'), findsOneWidget);
+    expect(find.byKey(const Key('scan_camera_btn')), findsOneWidget);
+    expect(find.byKey(const Key('import_media_btn')), findsOneWidget);
+
+    // Share & Copy buttons must not be present when there is no text
+    expect(find.byKey(const Key('copy_button')), findsNothing);
+    expect(find.byKey(const Key('share_button')), findsNothing);
+  });
+
+  testWidgets('Simulated OCR processing displays recognized text',
+      (WidgetTester tester) async {
+    const recognizedSample = 'INVOICE 2026\nSubtotal: \$99.00';
+    final mockService = MockOcrService(stubbedText: recognizedSample);
+
+    await tester.pumpWidget(DocumentScannerApp(ocrService: mockService));
+
+    // Verify widget tree initialized
+    expect(find.byKey(const Key('ocr_output_text')), findsOneWidget);
+
+    // Simulate direct state injection for recognized text
+    final state = tester.state<_ScannerHomePageState>(find.byType(ScannerHomePage));
+    state.setState(() {
+      state._extractedText = recognizedSample;
+    });
+    await tester.pump();
+
+    // Verify result display & action button visibility
+    expect(find.text(recognizedSample), findsOneWidget);
+    expect(find.byKey(const Key('copy_button')), findsOneWidget);
+    expect(find.byKey(const Key('share_button')), findsOneWidget);
+  });
+}
+
+# 1. Fetch dependencies
+flutter pub get
+
+# 2. Run all unit and widget tests
+flutter test
+
+# 3. Run with full test logs and coverage
+flutter test --coverage
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#1E1B4B" />
+    </linearGradient>
+    <linearGradient id="beamGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06B6D4" stop-opacity="0.2" />
+      <stop offset="50%" stop-color="#38BDF8" stop-opacity="1" />
+      <stop offset="100%" stop-color="#6366F1" stop-opacity="0.2" />
+    </linearGradient>
+    <linearGradient id="docGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366F1" />
+      <stop offset="100%" stop-color="#06B6D4" />
+    </linearGradient>
+  </defs>
+
+  <!-- App Icon Background -->
+  <rect width="512" height="512" rx="115" fill="url(#bgGrad)" />
+
+  <!-- Outer Scanner Viewfinder Brackets -->
+  <path d="M 120 180 L 120 130 A 10 10 0 0 1 130 120 L 180 120" stroke="#38BDF8" stroke-width="16" stroke-linecap="round" fill="none" />
+  <path d="M 332 120 L 382 120 A 10 10 0 0 1 392 130 L 392 180" stroke="#38BDF8" stroke-width="16" stroke-linecap="round" fill="none" />
+  <path d="M 120 332 L 120 382 A 10 10 0 0 0 130 392 L 180 392" stroke="#38BDF8" stroke-width="16" stroke-linecap="round" fill="none" />
+  <path d="M 332 392 L 382 392 A 10 10 0 0 0 392 382 L 392 332" stroke="#38BDF8" stroke-width="16" stroke-linecap="round" fill="none" />
+
+  <!-- Center Document Sheet -->
+  <rect x="176" y="160" width="160" height="192" rx="18" fill="#1E293B" stroke="url(#docGrad)" stroke-width="8" />
+
+  <!-- Structured Digital Data Lines -->
+  <line x1="210" y1="210" x2="302" y2="210" stroke="#94A3B8" stroke-width="10" stroke-linecap="round" />
+  <line x1="210" y1="245" x2="280" y2="245" stroke="#94A3B8" stroke-width="10" stroke-linecap="round" />
+  <line x1="210" y1="280" x2="295" y2="280" stroke="#38BDF8" stroke-width="10" stroke-linecap="round" />
+
+  <!-- Dynamic Laser Scan Line -->
+  <line x1="140" y1="256" x2="372" y2="256" stroke="url(#beamGrad)" stroke-width="14" stroke-linecap="round" />
+  <circle cx="256" cy="256" r="7" fill="#FFFFFF" />
+</svg>
+
+name: Deployment Test & Build Pipeline
+
+on:
+  push:
+    branches: [ main, release/** ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test_and_analyze:
+    name: Unit & Widget Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Analyze Code
+        run: flutter analyze --fatal-infos
+
+      - name: Run Test Suite with Coverage
+        run: flutter test --coverage
+
+  build_android:
+    name: Build Android Release Candidate
+    needs: test_and_analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+      - run: flutter pub get
+      - name: Build Android App Bundle (.aab)
+        run: flutter build appbundle --release --no-tree-shake-icons
+
+  build_ios:
+    name: Build iOS No-Codesign Test
+    needs: test_and_analyze
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+      - run: flutter pub get
+      - name: Build iOS IPA (Unsigned test)
+        run: flutter build ios --release --no-codesign
