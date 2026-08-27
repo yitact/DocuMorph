@@ -168,7 +168,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
               );
             },
           ),
-          if (hasValidText) [
+          if (hasValidText) ...[
             IconButton(
               key: const Key('copy_button'),
               icon: const Icon(Icons.copy),
@@ -181,7 +181,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
               tooltip: 'Share',
               onPressed: _shareDigitalText,
             ),
-          ].expand((widget) => [widget]).toList() else [],
+          ],
         ],
       ),
       body: SingleChildScrollView(
