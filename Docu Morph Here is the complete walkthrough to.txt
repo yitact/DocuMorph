@@ -1,0 +1,100 @@
+Here is the complete walkthrough to store, archive, and publish **DocuMorph** across GitHub, Google Drive, and the app stores.
+
+---
+
+### Step 1: Save the Documentation to Google Drive
+
+To store the full specification in your Google Drive:
+
+1. Go to [drive.google.com](https://drive.google.com).
+2. Click **+ New** $\rightarrow$ **Google Docs** $\rightarrow$ **Blank document**.
+3. Set the document title to: **`DocuMorph - Master Project Specification & Architecture`**.
+4. Copy the complete specification and README generated in our previous steps and paste it into the document.
+5. *(Optional)* Click **File** $\rightarrow$ **Download** $\rightarrow$ **PDF Document (.pdf)** to keep an offline, non-editable snapshot in Drive.
+
+---
+
+### Step 2: Push the Complete Codebase to GitHub
+
+Ensure your latest files (including the new `README.md`, services, and configuration files) are committed and pushed to your repository:
+
+```bash
+# Navigate to your project directory
+cd /path/to/your/DocuMorph
+
+# Stage all files
+git add .
+
+# Create the deployment commit
+git commit -m "feat: complete DocuMorph core architecture, security, cloud sync, and documentation"
+
+# Push to the main branch
+git push origin main
+
+```
+
+Your full repository will be live and accessible at:
+
+👉 **`[https://github.com/yitact/DocuMorph](https://github.com/yitact/DocuMorph)`**
+
+---
+
+### Step 3: Create a GitHub Release & Tag
+
+Creating a release packages your source code and downloadable binaries into a permanent archive on GitHub:
+
+1. **Tag the Version Locally:**
+```bash
+git tag -a v1.0.0 -m "DocuMorph v1.0.0 - Production Release"
+git push origin v1.0.0
+
+```
+
+
+2. **Draft GitHub Release:**
+* Go to `[https://github.com/yitact/DocuMorph/releases](https://github.com/yitact/DocuMorph/releases)`.
+* Click **Draft a new release**.
+* Select tag **`v1.0.0`**.
+* Set Release title: **`DocuMorph v1.0.0 — Production Ready`**.
+
+
+3. **Attach Binary Artifacts:**
+Upload the compiled release binaries:
+
+* Android: `build/app/outputs/bundle/release/app-release.aab` (or `.apk`)
+* iOS: `build/ios/ipa/DocuMorph.ipa`
+* Click **Publish release**.
+
+
+---
+
+### Step 4: Publish to Google Play Store & Apple App Store
+
+#### 1. Google Play Console (Android)
+
+* Log in to [play.google.com/console](https://play.google.com/console).
+* Click **Create app** $\rightarrow$ App name: `DocuMorph`, Category: `Finance / Productivity`.
+* Go to **Release** $\rightarrow$ **Production** $\rightarrow$ **Create new release**.
+* Upload `app-release.aab`.
+* Complete the **Data Safety form** (mark: *Zero-knowledge encrypted client-side data; camera data not collected without user intent*).
+* Submit for review.
+
+#### 2. Apple App Store Connect (iOS)
+
+* Log in to [appstoreconnect.apple.com](https://appstoreconnect.apple.com).
+* Click **My Apps** $\rightarrow$ **+** $\rightarrow$ **New App**.
+* Set Bundle ID to `com.documorph.scanner`.
+* In Xcode, select **Product** $\rightarrow$ **Archive** $\rightarrow$ **Distribute App** (or upload via `xcrun altool`).
+* Set up in-app subscription identifiers in App Store Connect to match your RevenueCat product IDs (`pro_monthly`, `pro_annual`).
+* Submit for App Review.
+
+---
+
+### Step 5: Host Documentation via GitHub Pages (Optional)
+
+To publish a public web version of the documentation and privacy policy:
+
+1. In your GitHub repository, go to **Settings** $\rightarrow$ **Pages**.
+2. Under **Build and deployment** $\rightarrow$ **Source**, select **Deploy from a branch**.
+3. Choose branch: `main` and folder: `/ (root)` or `/docs`.
+4. Click **Save**. Your documentation site will be hosted live at `[https://yitact.github.io/DocuMorph/](https://yitact.github.io/DocuMorph/)`.
