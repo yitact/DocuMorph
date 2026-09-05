@@ -278,4 +278,4 @@ dependencies:
 <key>NSCameraUsageDescription</key>
 <string>This app requires camera access to scan documents.</string>
 <key>NSPhotoLibraryUsageDescription</key>
-<string>This app requires photo library access to import images.</string>
+<string>This app requires photo library access to import images.</string> 
