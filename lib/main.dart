@@ -2,35 +2,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:share_plus/share_plus.dart';
+
+import 'services/mlkit_ocr_service.dart';
+import 'services/ocr_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(DocumentScannerApp(ocrService: MlKitOcrService()));
-}
-
-abstract class OcrService {
-  Future<String> recognizeText(File imageFile);
-  void dispose();
-}
-
-class MlKitOcrService implements OcrService {
-  final TextRecognizer _recognizer =
-      TextRecognizer(script: TextRecognitionScript.latin);
-
-  @override
-  Future<String> recognizeText(File imageFile) async {
-    final inputImage = InputImage.fromFilePath(imageFile.path);
-    final RecognizedText recognizedText =
-        await _recognizer.processImage(inputImage);
-    return recognizedText.text.trim();
-  }
-
-  @override
-  void dispose() {
-    _recognizer.close();
-  }
 }
 
 class DocumentScannerApp extends StatelessWidget {

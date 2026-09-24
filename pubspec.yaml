@@ -17,6 +17,11 @@ dependencies:
   qr_flutter: ^4.1.0
   pdf: ^3.10.0
   printing: ^5.11.0
+  firebase_core: ^3.6.0
+  firebase_firestore: ^5.5.0
+  firebase_storage: ^12.4.0
+  local_auth: ^2.3.0
+  logger: ^2.9.0
 
 dev_dependencies:
   flutter_test:
