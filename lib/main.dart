@@ -6,23 +6,42 @@ import 'package:share_plus/share_plus.dart';
 
 import 'models/stored_document.dart';
 import 'screens/saved_documents_screen.dart';
+import 'screens/unlock_library_screen.dart';
 import 'services/document_store.dart';
+import 'services/encryption_service.dart';
 import 'services/mlkit_ocr_service.dart';
 import 'services/ocr_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(DocumentScannerApp(ocrService: MlKitOcrService()));
+  // The document library is encrypted at rest by default: the store is
+  // wired to an EncryptionService, which stays locked until the user
+  // enters their passphrase (see UnlockLibraryScreen).
+  final encryption = EncryptionService();
+  runApp(
+    DocumentScannerApp(
+      ocrService: MlKitOcrService(),
+      documentStore: DocumentStore(encryption: encryption),
+      encryptionService: encryption,
+    ),
+  );
 }
 
 class DocumentScannerApp extends StatelessWidget {
   final OcrService ocrService;
   final DocumentStore? documentStore;
+  final EncryptionService? encryptionService;
+
+  /// PBKDF2 cost used by the unlock gate. Production keeps the service
+  /// default; tests pass a small number so the suite stays fast.
+  final int unlockIterations;
 
   const DocumentScannerApp({
     super.key,
     required this.ocrService,
     this.documentStore,
+    this.encryptionService,
+    this.unlockIterations = EncryptionService.defaultIterations,
   });
 
   @override
@@ -39,6 +58,8 @@ class DocumentScannerApp extends StatelessWidget {
       home: ScannerHomePage(
         ocrService: ocrService,
         documentStore: documentStore,
+        encryptionService: encryptionService,
+        unlockIterations: unlockIterations,
       ),
     );
   }
@@ -47,11 +68,15 @@ class DocumentScannerApp extends StatelessWidget {
 class ScannerHomePage extends StatefulWidget {
   final OcrService ocrService;
   final DocumentStore? documentStore;
+  final EncryptionService? encryptionService;
+  final int unlockIterations;
 
   const ScannerHomePage({
     super.key,
     required this.ocrService,
     this.documentStore,
+    this.encryptionService,
+    this.unlockIterations = EncryptionService.defaultIterations,
   });
 
   @override
@@ -129,10 +154,35 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
       }
     } catch (_) {
       // Library persistence is best-effort; the scan result stays on screen.
+      // When the library is encrypted and still locked, tell the user how
+      // to save scans instead of failing silently.
+      if (mounted && _documentStore.requiresUnlock) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Library is locked — tap the folder icon to unlock, '
+              'then future scans will save.',
+            ),
+          ),
+        );
+      }
     }
   }
 
-  void _openLibrary() {
+  Future<void> _openLibrary() async {
+    if (_documentStore.requiresUnlock && widget.encryptionService != null) {
+      final unlocked = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => UnlockLibraryScreen(
+            store: _documentStore,
+            encryption: widget.encryptionService!,
+            iterations: widget.unlockIterations,
+          ),
+        ),
+      );
+      if (unlocked != true || !mounted) return;
+    }
+    if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SavedDocumentsScreen(store: _documentStore),

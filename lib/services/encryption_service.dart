@@ -50,6 +50,18 @@ class EncryptionService {
 
   bool get _isInitialized => _key != null;
 
+  /// Whether [initialize] has completed and the service can encrypt/decrypt.
+  bool get isInitialized => _isInitialized;
+
+  /// Lock the vault: forget the derived key and the in-memory passphrase.
+  /// The next encrypt/decrypt will throw until [initialize] is called again.
+  void lock() {
+    _key = null;
+    _passphrase = null;
+    _salt = null;
+    logger.i('EncryptionService locked');
+  }
+
   /// The vault salt (base64) in use. Persist this alongside the account so
   /// the vault can be re-derived after passphrase changes; note individual
   /// ciphertext envelopes also carry their own salt, so decryption does not
