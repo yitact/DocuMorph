@@ -67,7 +67,7 @@ class DuplicateAndRecurringService {
       score += textSim;
       maxScore += 0.3;
 
-      final finalScore = maxScore > 0 ? score / maxScore : 0;
+      final double finalScore = maxScore > 0 ? score / maxScore : 0.0;
       return finalScore;
     } catch (e) {
       logger.e('Similarity calculation failed', error: e);

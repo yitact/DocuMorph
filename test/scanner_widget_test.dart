@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:documorph/main.dart';
+import 'package:documorph/services/ocr_service.dart';
 
 class MockOcrService implements OcrService {
   final String stubbedText;

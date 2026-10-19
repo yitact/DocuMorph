@@ -21,7 +21,10 @@ dependencies:
   firebase_firestore: ^5.5.0
   firebase_storage: ^12.4.0
   local_auth: ^2.3.0
-  logger: ^2.9.0
+  logger: ^2.5.0
+  crypto: ^3.0.7
+  encrypt: ^5.0.3
+  flutter_local_notifications: ^19.5.0
 
 dev_dependencies:
   flutter_test:

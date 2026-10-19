@@ -13,7 +13,7 @@ class AuthService {
   Future<void> initialize() async {
     try {
       _isBiometricAvailable = await _localAuth.canCheckBiometrics;
-      final canUseDeviceCredential = await _localAuth.deviceSupportsBiometrics;
+      final canUseDeviceCredential = await _localAuth.isDeviceSupported();
       
       _isBiometricAvailable =
           _isBiometricAvailable || canUseDeviceCredential;

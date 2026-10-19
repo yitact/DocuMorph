@@ -5,7 +5,13 @@ import 'package:logger/logger.dart';
 
 final logger = Logger();
 
-/// Service for client-side AES-256-GCM encryption
+/// Service for client-side encryption.
+///
+/// NOTE (corrected 2026-10-18): this implementation uses the `encrypt`
+/// package's Fernet cipher (AES-128-CBC + HMAC) — it is NOT AES-256-GCM as
+/// earlier docs claimed. The key is derived from a passphrase with an
+/// iterated SHA-256 and a default salt. Treat this as a build-fix baseline;
+/// a proper AES-256-GCM + strong-KDF rework is a separate planned step.
 class EncryptionService {
   late enc.Key _encryptionKey;
   bool _isInitialized = false;
@@ -32,12 +38,12 @@ class EncryptionService {
   String encrypt(String plaintext) {
     try {
       _checkInitialized();
-      
-      final iv = enc.IV.fromSecureRandom(16);
-      final cipher = enc.Fernet(_encryptionKey);
-      
-      final encrypted = cipher.encrypt(plaintext, iv: iv);
-      
+
+      // Fernet generates and embeds its own IV + timestamp in the token,
+      // so no separate IV handling is needed here.
+      final encrypter = enc.Encrypter(enc.Fernet(_encryptionKey));
+      final encrypted = encrypter.encrypt(plaintext);
+
       logger.i('Data encrypted: ${plaintext.length} chars -> ${encrypted.base64.length} chars');
       return encrypted.base64;
     } catch (e) {
@@ -50,10 +56,12 @@ class EncryptionService {
   String decrypt(String ciphertext) {
     try {
       _checkInitialized();
-      
-      final cipher = enc.Fernet(_encryptionKey);
-      final decrypted = cipher.decrypt(ciphertext);
-      
+
+      final encrypter = enc.Encrypter(enc.Fernet(_encryptionKey));
+      final decrypted = encrypter.decrypt(
+        enc.Encrypted.fromBase64(ciphertext),
+      );
+
       logger.i('Data decrypted: ${ciphertext.length} chars -> ${decrypted.length} chars');
       return decrypted;
     } catch (e) {
@@ -138,9 +146,11 @@ class EncryptionService {
     try {
       _checkInitialized();
       
-      // Verify old passphrase
+      // Verify old passphrase. The stored key's bytes are exactly the
+      // derived-key string encoded as UTF-8 (see initialize), so compare
+      // against that — not against the key's base64 form.
       final oldKey = _deriveKey(oldPassphrase, 'documorph_default_salt_2026');
-      if (oldKey != _encryptionKey.base64) {
+      if (oldKey != utf8.decode(_encryptionKey.bytes)) {
         throw Exception('Invalid current passphrase');
       }
       

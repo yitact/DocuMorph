@@ -22,7 +22,6 @@ class NotificationService {
         requestAlertPermission: true,
         requestBadgePermission: true,
         requestSoundPermission: true,
-        onDidReceiveLocalNotification: _onDidReceiveLocalNotification,
       );
 
       final initializationSettings = InitializationSettings(
@@ -177,16 +176,6 @@ class NotificationService {
     } catch (e) {
       logger.e('Failed to show notification', error: e);
     }
-  }
-
-  /// Callback for iOS notifications when app is in foreground
-  Future<void> _onDidReceiveLocalNotification(
-    int id,
-    String? title,
-    String? body,
-    String? payload,
-  ) async {
-    logger.i('iOS notification received: $title - $body');
   }
 
   /// Callback when notification is selected
