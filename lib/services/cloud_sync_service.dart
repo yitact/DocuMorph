@@ -56,7 +56,7 @@ class CloudSyncService {
         'tags': document.tags,
       };
 
-      final encryptedData = _encryptionService.encryptJson(docJson);
+      final encryptedData = await _encryptionService.encryptJson(docJson);
 
       // Upload to Firestore
       final docRef =
@@ -112,7 +112,7 @@ class CloudSyncService {
       }
 
       // Decrypt data
-      final decryptedJson = _encryptionService.decryptJson(encryptedData);
+      final decryptedJson = await _encryptionService.decryptJson(encryptedData);
 
       // Reconstruct document
       final document = StoredDocument(

@@ -1,168 +1,251 @@
 import 'dart:convert';
-import 'package:crypto/crypto.dart';
-import 'package:encrypt/encrypt.dart' as enc;
+import 'dart:math';
+
+import 'package:crypto/crypto.dart' hide Hmac;
+import 'package:cryptography/cryptography.dart';
 import 'package:logger/logger.dart';
 
 final logger = Logger();
 
-/// Service for client-side encryption.
+/// Client-side encryption service — v2 (rewritten 2026-10-18).
 ///
-/// NOTE (corrected 2026-10-18): this implementation uses the `encrypt`
-/// package's Fernet cipher (AES-128-CBC + HMAC) — it is NOT AES-256-GCM as
-/// earlier docs claimed. The key is derived from a passphrase with an
-/// iterated SHA-256 and a default salt. Treat this as a build-fix baseline;
-/// a proper AES-256-GCM + strong-KDF rework is a separate planned step.
+/// What it actually does (no marketing gloss):
+/// - Cipher: **AES-256-GCM** (authenticated encryption) via the
+///   `cryptography` package. Tampering with a ciphertext makes decryption
+///   fail instead of returning corrupted plaintext.
+/// - Key derivation: **PBKDF2-HMAC-SHA256**, [defaultIterations] rounds,
+///   256-bit key, from the user's passphrase.
+/// - Salt: 16 cryptographically random bytes per vault — NOT a shared
+///   hardcoded value. Same passphrase on two devices produces different
+///   keys.
+/// - Ciphertext format: a versioned, self-describing envelope. `encrypt`
+///   returns base64 of a JSON object:
+///   `{v, iter, salt, nonce, mac, ct}` (all values base64 except `v`/`iter`).
+///   Because KDF parameters and the nonce travel with the ciphertext, any
+///   instance initialized with the correct passphrase can decrypt it, and
+///   parameters can be upgraded later without breaking old data.
+///
+/// Breaking change vs v1: v1 used Fernet (AES-128-CBC) with a hardcoded
+/// salt and an iterated-SHA256 KDF. v1 ciphertexts cannot be decrypted by
+/// this implementation. Acceptable because v1 never shipped and cloud sync
+/// was never initialized against real data.
+///
+/// Note: `encrypt`/`decrypt` are async (the cryptography APIs are), unlike
+/// v1's synchronous wrappers.
 class EncryptionService {
-  late enc.Key _encryptionKey;
-  bool _isInitialized = false;
+  static const int envelopeVersion = 2;
+  static const int defaultIterations = 210000;
+  static const int saltLengthBytes = 16;
 
-  /// Initialize with a passphrase
-  Future<void> initialize(String passphrase, {String? salt}) async {
+  final AesGcm _algorithm = AesGcm.with256bits();
+  final Random _secureRandom = Random.secure();
+
+  SecretKey? _key;
+  List<int>? _salt;
+  int _iterations = defaultIterations;
+
+  /// The current passphrase, held in memory only (never persisted) so that
+  /// envelopes carrying older KDF parameters can be re-derived on decrypt.
+  String? _passphrase;
+
+  bool get _isInitialized => _key != null;
+
+  /// The vault salt (base64) in use. Persist this alongside the account so
+  /// the vault can be re-derived after passphrase changes; note individual
+  /// ciphertext envelopes also carry their own salt, so decryption does not
+  /// depend on this value being restored first.
+  String get saltBase64 {
+    _checkInitialized();
+    return base64Encode(_salt!);
+  }
+
+  int get iterations => _iterations;
+
+  /// Initialize with a passphrase.
+  ///
+  /// [salt] is a base64-encoded salt to reuse (e.g., restored from storage);
+  /// when omitted, a fresh random salt is generated. [iterations] overrides
+  /// the PBKDF2 cost — production code should leave the default; the
+  /// parameter exists mainly so tests can run fast.
+  Future<void> initialize(
+    String passphrase, {
+    String? salt,
+    int iterations = defaultIterations,
+  }) async {
     try {
-      final saltValue = salt ?? 'documorph_default_salt_2026';
-      
-      // Derive key from passphrase using PBKDF2-like approach
-      _encryptionKey = enc.Key.fromUtf8(
-        _deriveKey(passphrase, saltValue),
-      );
-      
-      _isInitialized = true;
-      logger.i('EncryptionService initialized');
+      _salt = salt != null
+          ? base64Decode(salt)
+          : List<int>.generate(
+              saltLengthBytes,
+              (_) => _secureRandom.nextInt(256),
+            );
+      _iterations = iterations;
+      _passphrase = passphrase;
+      _key = await _deriveKey(passphrase, _salt!, _iterations);
+      logger.i('EncryptionService initialized (AES-256-GCM, PBKDF2 x$_iterations)');
     } catch (e) {
       logger.e('Failed to initialize EncryptionService', error: e);
       rethrow;
     }
   }
 
-  /// Encrypt plaintext
-  String encrypt(String plaintext) {
+  Future<SecretKey> _deriveKey(
+    String passphrase,
+    List<int> salt,
+    int iterations,
+  ) {
+    final pbkdf2 = Pbkdf2(
+      macAlgorithm: Hmac.sha256(),
+      iterations: iterations,
+      bits: 256,
+    );
+    return pbkdf2.deriveKey(
+      secretKey: SecretKey(utf8.encode(passphrase)),
+      nonce: salt,
+    );
+  }
+
+  /// Encrypt plaintext; returns the base64 envelope string.
+  Future<String> encrypt(String plaintext) async {
+    _checkInitialized();
     try {
-      _checkInitialized();
-
-      // Fernet generates and embeds its own IV + timestamp in the token,
-      // so no separate IV handling is needed here.
-      final encrypter = enc.Encrypter(enc.Fernet(_encryptionKey));
-      final encrypted = encrypter.encrypt(plaintext);
-
-      logger.i('Data encrypted: ${plaintext.length} chars -> ${encrypted.base64.length} chars');
-      return encrypted.base64;
+      final box = await _algorithm.encrypt(
+        utf8.encode(plaintext),
+        secretKey: _key!,
+      );
+      final envelope = <String, dynamic>{
+        'v': envelopeVersion,
+        'iter': _iterations,
+        'salt': base64Encode(_salt!),
+        'nonce': base64Encode(box.nonce),
+        'mac': base64Encode(box.mac.bytes),
+        'ct': base64Encode(box.cipherText),
+      };
+      final encoded = base64Encode(utf8.encode(jsonEncode(envelope)));
+      logger.i('Data encrypted: ${plaintext.length} chars -> ${encoded.length} chars');
+      return encoded;
     } catch (e) {
       logger.e('Encryption failed', error: e);
       rethrow;
     }
   }
 
-  /// Decrypt ciphertext
-  String decrypt(String ciphertext) {
+  /// Decrypt a base64 envelope produced by [encrypt].
+  ///
+  /// Uses the salt/iterations stored in the envelope, so it succeeds on any
+  /// instance initialized with the same passphrase. Throws on a wrong
+  /// passphrase or on any tampering (GCM authentication failure).
+  Future<String> decrypt(String ciphertext) async {
+    _checkInitialized();
     try {
-      _checkInitialized();
-
-      final encrypter = enc.Encrypter(enc.Fernet(_encryptionKey));
-      final decrypted = encrypter.decrypt(
-        enc.Encrypted.fromBase64(ciphertext),
+      final envelope =
+          jsonDecode(utf8.decode(base64Decode(ciphertext))) as Map<String, dynamic>;
+      if (envelope['v'] != envelopeVersion) {
+        throw Exception('Unsupported ciphertext version: ${envelope['v']}');
+      }
+      final salt = base64Decode(envelope['salt'] as String);
+      final iter = (envelope['iter'] as num).toInt();
+      // Re-derive the key for this envelope's parameters using the current
+      // passphrase. _key was derived from the same passphrase, so when the
+      // envelope matches the vault parameters this is the same key; deriving
+      // per-envelope keeps old parameters decryptable after upgrades.
+      final key = await _deriveKeyFromCurrentPassphrase(salt, iter);
+      final box = SecretBox(
+        base64Decode(envelope['ct'] as String),
+        nonce: base64Decode(envelope['nonce'] as String),
+        mac: Mac(base64Decode(envelope['mac'] as String)),
       );
-
-      logger.i('Data decrypted: ${ciphertext.length} chars -> ${decrypted.length} chars');
-      return decrypted;
+      final clear = await _algorithm.decrypt(box, secretKey: key);
+      final plaintext = utf8.decode(clear);
+      logger.i('Data decrypted: ${ciphertext.length} chars -> ${plaintext.length} chars');
+      return plaintext;
     } catch (e) {
       logger.e('Decryption failed', error: e);
       rethrow;
     }
   }
 
-  /// Encrypt JSON object
-  String encryptJson(Map<String, dynamic> json) {
-    try {
-      final jsonString = jsonEncode(json);
-      return encrypt(jsonString);
-    } catch (e) {
-      logger.e('JSON encryption failed', error: e);
-      rethrow;
-    }
+  Future<SecretKey> _deriveKeyFromCurrentPassphrase(
+    List<int> salt,
+    int iterations,
+  ) {
+    return _deriveKey(_passphrase!, salt, iterations);
   }
 
-  /// Decrypt JSON object
-  Map<String, dynamic> decryptJson(String ciphertext) {
-    try {
-      final decrypted = decrypt(ciphertext);
-      return jsonDecode(decrypted) as Map<String, dynamic>;
-    } catch (e) {
-      logger.e('JSON decryption failed', error: e);
-      rethrow;
-    }
+  /// Encrypt a JSON object; returns the base64 envelope string.
+  Future<String> encryptJson(Map<String, dynamic> json) {
+    return encrypt(jsonEncode(json));
   }
 
-  /// Hash data for verification
+  /// Decrypt a base64 envelope back into a JSON object.
+  Future<Map<String, dynamic>> decryptJson(String ciphertext) async {
+    final decrypted = await decrypt(ciphertext);
+    return jsonDecode(decrypted) as Map<String, dynamic>;
+  }
+
+  /// Hash data for verification (integrity checksums, not passwords).
   String hashData(String data) {
-    try {
-      final hash = sha256.convert(utf8.encode(data));
-      return hash.toString();
-    } catch (e) {
-      logger.e('Hashing failed', error: e);
-      rethrow;
-    }
+    final hash = sha256.convert(utf8.encode(data));
+    return hash.toString();
   }
 
-  /// Verify hashed data
+  /// Verify hashed data.
   bool verifyHash(String data, String hash) {
-    try {
-      return hashData(data) == hash;
-    } catch (e) {
-      logger.e('Hash verification failed', error: e);
-      return false;
-    }
+    return hashData(data) == hash;
   }
 
-  /// Generate secure random string
+  /// Generate a cryptographically random alphanumeric string.
   String generateRandomString(int length) {
+    final buffer = StringBuffer();
+    while (buffer.length < length) {
+      final bytes = List<int>.generate(24, (_) => _secureRandom.nextInt(256));
+      buffer.write(base64UrlEncode(bytes).replaceAll(RegExp(r'[^a-zA-Z0-9]'), ''));
+    }
+    return buffer.toString().substring(0, length);
+  }
+
+  /// Change the vault passphrase. Verifies the current passphrase first
+  /// (a wrong one throws), then rotates to a fresh random salt and the
+  /// current default iteration count.
+  Future<void> changePassphrase(
+    String oldPassphrase,
+    String newPassphrase,
+  ) async {
+    _checkInitialized();
     try {
-      final randomBytes = enc.Key.fromSecureRandom(length);
-      return base64Encode(randomBytes.bytes).replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').substring(0, length);
-    } catch (e) {
-      logger.e('Random string generation failed', error: e);
-      rethrow;
-    }
-  }
-
-  /// Derive encryption key from passphrase
-  String _deriveKey(String passphrase, String salt) {
-    // Simple PBKDF2-like key derivation
-    var key = passphrase + salt;
-    for (var i = 0; i < 1000; i++) {
-      key = sha256.convert(utf8.encode(key)).toString();
-    }
-    return key.substring(0, 32); // 256-bit key
-  }
-
-  /// Check if service is initialized
-  void _checkInitialized() {
-    if (!_isInitialized) {
-      throw Exception('EncryptionService not initialized. Call initialize() first.');
-    }
-  }
-
-  /// Change passphrase
-  Future<void> changePassphrase(String oldPassphrase, String newPassphrase) async {
-    try {
-      _checkInitialized();
-      
-      // Verify old passphrase. The stored key's bytes are exactly the
-      // derived-key string encoded as UTF-8 (see initialize), so compare
-      // against that — not against the key's base64 form.
-      final oldKey = _deriveKey(oldPassphrase, 'documorph_default_salt_2026');
-      if (oldKey != utf8.decode(_encryptionKey.bytes)) {
+      final oldKey = await _deriveKey(oldPassphrase, _salt!, _iterations);
+      final oldBytes = await oldKey.extractBytes();
+      final currentBytes = await _key!.extractBytes();
+      if (!_constantTimeEquals(oldBytes, currentBytes)) {
         throw Exception('Invalid current passphrase');
       }
-      
-      // Set new passphrase
-      _encryptionKey = enc.Key.fromUtf8(
-        _deriveKey(newPassphrase, 'documorph_default_salt_2026'),
+
+      _salt = List<int>.generate(
+        saltLengthBytes,
+        (_) => _secureRandom.nextInt(256),
       );
-      
-      logger.i('Passphrase changed successfully');
+      _iterations = defaultIterations;
+      _passphrase = newPassphrase;
+      _key = await _deriveKey(newPassphrase, _salt!, _iterations);
+      logger.i('Passphrase changed successfully (salt rotated)');
     } catch (e) {
       logger.e('Failed to change passphrase', error: e);
       rethrow;
+    }
+  }
+
+  bool _constantTimeEquals(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    var diff = 0;
+    for (var i = 0; i < a.length; i++) {
+      diff |= a[i] ^ b[i];
+    }
+    return diff == 0;
+  }
+
+  void _checkInitialized() {
+    if (!_isInitialized) {
+      throw Exception('EncryptionService not initialized. Call initialize() first.');
     }
   }
 }
