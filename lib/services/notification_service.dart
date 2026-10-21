@@ -18,13 +18,13 @@ class NotificationService {
           AndroidInitializationSettings('@mipmap/launcher_icon');
 
       // iOS initialization settings
-      final iOSInitializationSettings = DarwinInitializationSettings(
+      const iOSInitializationSettings = DarwinInitializationSettings(
         requestAlertPermission: true,
         requestBadgePermission: true,
         requestSoundPermission: true,
       );
 
-      final initializationSettings = InitializationSettings(
+      const initializationSettings = InitializationSettings(
         android: androidInitializationSettings,
         iOS: iOSInitializationSettings,
       );
@@ -75,7 +75,7 @@ class NotificationService {
     try {
       _checkInitialized();
 
-      final title = 'Duplicate Receipt Detected';
+      const title = 'Duplicate Receipt Detected';
       final body = '$vendor - \$$amount';
 
       await _showNotification(
@@ -100,12 +100,12 @@ class NotificationService {
     try {
       _checkInitialized();
 
-      final title = 'Subscription Reminder';
+      const title = 'Subscription Reminder';
       final body =
           '$vendor (\$$amount) due on ${nextDue.toString().split(' ')[0]}';
 
       await _showNotification(
-        id: 'subscription_${vendor}'.hashCode,
+        id: 'subscription_$vendor'.hashCode,
         title: title,
         body: body,
         payload: 'subscription_reminder',
@@ -161,7 +161,7 @@ class NotificationService {
         presentBadge: true,
       );
 
-      final details = NotificationDetails(
+      const details = NotificationDetails(
         android: androidDetails,
         iOS: iOSDetails,
       );

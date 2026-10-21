@@ -213,7 +213,9 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
 
   void _copyToClipboard() {
     if (_extractedText.isEmpty ||
-        _extractedText == 'No readable text detected.') return;
+        _extractedText == 'No readable text detected.') {
+      return;
+    }
     Clipboard.setData(ClipboardData(text: _extractedText));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Extracted text copied to clipboard!')),
@@ -222,7 +224,9 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
 
   void _shareDigitalText() {
     if (_extractedText.isEmpty ||
-        _extractedText == 'No readable text detected.') return;
+        _extractedText == 'No readable text detected.') {
+      return;
+    }
     Share.share(
       _extractedText,
       subject: 'Digitized Document Content',

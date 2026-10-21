@@ -1,4 +1,4 @@
-import 'package:firebase_firestore/firebase_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:logger/logger.dart';
 import '../models/stored_document.dart';
 import 'encryption_service.dart';
