@@ -40,8 +40,8 @@ class AnalyticsService {
         (sum, doc) => sum + (doc.amount ?? 0),
       );
 
-      final averageTransaction =
-          filteredDocs.isEmpty ? 0 : totalSpent / filteredDocs.length;
+      final double averageTransaction =
+          filteredDocs.isEmpty ? 0.0 : totalSpent / filteredDocs.length;
 
       // Category breakdown
       final categoryBreakdown = <String, double>{};
@@ -182,8 +182,8 @@ class AnalyticsService {
         (sum, doc) => sum + (doc.amount ?? 0),
       );
 
-      final percentageChange = period1Total == 0
-          ? 0
+      final double percentageChange = period1Total == 0
+          ? 0.0
           : ((period2Total - period1Total) / period1Total) * 100;
 
       logger.i(

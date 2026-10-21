@@ -190,7 +190,6 @@ class BudgetService {
       if (daysIntoMonth == 0) return getBudget(category);
 
       final budget = getBudget(category);
-      final dailyBudget = budget / 30;
       final projectedSpend = (spent / daysIntoMonth) * 30;
       final remaining = budget - projectedSpend;
 

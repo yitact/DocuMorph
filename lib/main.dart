@@ -4,18 +4,45 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'models/stored_document.dart';
+import 'screens/saved_documents_screen.dart';
+import 'screens/unlock_library_screen.dart';
+import 'services/document_store.dart';
+import 'services/encryption_service.dart';
 import 'services/mlkit_ocr_service.dart';
 import 'services/ocr_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(DocumentScannerApp(ocrService: MlKitOcrService()));
+  // The document library is encrypted at rest by default: the store is
+  // wired to an EncryptionService, which stays locked until the user
+  // enters their passphrase (see UnlockLibraryScreen).
+  final encryption = EncryptionService();
+  runApp(
+    DocumentScannerApp(
+      ocrService: MlKitOcrService(),
+      documentStore: DocumentStore(encryption: encryption),
+      encryptionService: encryption,
+    ),
+  );
 }
 
 class DocumentScannerApp extends StatelessWidget {
   final OcrService ocrService;
+  final DocumentStore? documentStore;
+  final EncryptionService? encryptionService;
 
-  const DocumentScannerApp({super.key, required this.ocrService});
+  /// PBKDF2 cost used by the unlock gate. Production keeps the service
+  /// default; tests pass a small number so the suite stays fast.
+  final int unlockIterations;
+
+  const DocumentScannerApp({
+    super.key,
+    required this.ocrService,
+    this.documentStore,
+    this.encryptionService,
+    this.unlockIterations = EncryptionService.defaultIterations,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -28,15 +55,29 @@ class DocumentScannerApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: ScannerHomePage(ocrService: ocrService),
+      home: ScannerHomePage(
+        ocrService: ocrService,
+        documentStore: documentStore,
+        encryptionService: encryptionService,
+        unlockIterations: unlockIterations,
+      ),
     );
   }
 }
 
 class ScannerHomePage extends StatefulWidget {
   final OcrService ocrService;
+  final DocumentStore? documentStore;
+  final EncryptionService? encryptionService;
+  final int unlockIterations;
 
-  const ScannerHomePage({super.key, required this.ocrService});
+  const ScannerHomePage({
+    super.key,
+    required this.ocrService,
+    this.documentStore,
+    this.encryptionService,
+    this.unlockIterations = EncryptionService.defaultIterations,
+  });
 
   @override
   State<ScannerHomePage> createState() => _ScannerHomePageState();
@@ -47,6 +88,8 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
   String _extractedText = '';
   bool _isProcessing = false;
   final ImagePicker _picker = ImagePicker();
+  late final DocumentStore _documentStore =
+      widget.documentStore ?? DocumentStore();
 
   @override
   void dispose() {
@@ -67,6 +110,9 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
         _extractedText = text.isEmpty ? 'No readable text detected.' : text;
         _isProcessing = false;
       });
+      if (text.isNotEmpty) {
+        await _saveScan(file, text);
+      }
     } catch (e) {
       setState(() => _isProcessing = false);
       if (mounted) {
@@ -75,6 +121,73 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
         );
       }
     }
+  }
+
+  /// Persist a successful scan to the local library. Storage failures are
+  /// swallowed (with a quiet note) so they never break the scanning flow.
+  Future<void> _saveScan(File file, String text) async {
+    try {
+      final firstLine = text
+          .split('\n')
+          .map((line) => line.trim())
+          .firstWhere((line) => line.isNotEmpty, orElse: () => '');
+      final title = firstLine.isEmpty
+          ? 'Scan'
+          : (firstLine.length > 48
+              ? '${firstLine.substring(0, 48)}…'
+              : firstLine);
+
+      await _documentStore.save(
+        StoredDocument(
+          id: DateTime.now().microsecondsSinceEpoch.toString(),
+          title: title,
+          documentType: 'scan',
+          imagePath: file.path,
+          ocrText: text,
+          createdAt: DateTime.now(),
+        ),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Saved to your library')),
+        );
+      }
+    } catch (_) {
+      // Library persistence is best-effort; the scan result stays on screen.
+      // When the library is encrypted and still locked, tell the user how
+      // to save scans instead of failing silently.
+      if (mounted && _documentStore.requiresUnlock) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Library is locked — tap the folder icon to unlock, '
+              'then future scans will save.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _openLibrary() async {
+    if (_documentStore.requiresUnlock && widget.encryptionService != null) {
+      final unlocked = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => UnlockLibraryScreen(
+            store: _documentStore,
+            encryption: widget.encryptionService!,
+            iterations: widget.unlockIterations,
+          ),
+        ),
+      );
+      if (unlocked != true || !mounted) return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SavedDocumentsScreen(store: _documentStore),
+      ),
+    );
   }
 
   Future<void> _pickAndProcessImage(ImageSource source) async {
@@ -100,7 +213,9 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
 
   void _copyToClipboard() {
     if (_extractedText.isEmpty ||
-        _extractedText == 'No readable text detected.') return;
+        _extractedText == 'No readable text detected.') {
+      return;
+    }
     Clipboard.setData(ClipboardData(text: _extractedText));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Extracted text copied to clipboard!')),
@@ -109,7 +224,9 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
 
   void _shareDigitalText() {
     if (_extractedText.isEmpty ||
-        _extractedText == 'No readable text detected.') return;
+        _extractedText == 'No readable text detected.') {
+      return;
+    }
     Share.share(
       _extractedText,
       subject: 'Digitized Document Content',
@@ -125,6 +242,12 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
       appBar: AppBar(
         title: const Text('DocuMorph'),
         actions: [
+          IconButton(
+            key: const Key('library_button'),
+            icon: const Icon(Icons.folder_open),
+            tooltip: 'Saved Documents',
+            onPressed: _openLibrary,
+          ),
           IconButton(
             icon: const Icon(Icons.info_outline),
             tooltip: 'About & Legal',

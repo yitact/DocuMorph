@@ -67,7 +67,7 @@ class DuplicateAndRecurringService {
       score += textSim;
       maxScore += 0.3;
 
-      final finalScore = maxScore > 0 ? score / maxScore : 0;
+      final double finalScore = maxScore > 0 ? score / maxScore : 0.0;
       return finalScore;
     } catch (e) {
       logger.e('Similarity calculation failed', error: e);
@@ -210,8 +210,12 @@ class DuplicateAndRecurringService {
       (i) => List<int>.generate(n + 1, (j) => 0),
     );
 
-    for (var i = 0; i <= m; i++) dp[i][0] = i;
-    for (var j = 0; j <= n; j++) dp[0][j] = j;
+    for (var i = 0; i <= m; i++) {
+      dp[i][0] = i;
+    }
+    for (var j = 0; j <= n; j++) {
+      dp[0][j] = j;
+    }
 
     for (var i = 1; i <= m; i++) {
       for (var j = 1; j <= n; j++) {
