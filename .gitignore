@@ -149,3 +149,8 @@ lib/generated/
 .DS_Store
 Thumbs.db
 .directory
+
+# Firebase Android config: per-developer file, downloaded from the
+# Firebase console (Project settings -> Your apps). Keep it out of git;
+# place it at android/app/google-services.json before building.
+android/app/google-services.json
