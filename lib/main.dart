@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -7,17 +8,34 @@ import 'package:share_plus/share_plus.dart';
 import 'models/stored_document.dart';
 import 'screens/saved_documents_screen.dart';
 import 'screens/unlock_library_screen.dart';
+import 'services/cloud_sync_service.dart';
 import 'services/document_store.dart';
 import 'services/encryption_service.dart';
 import 'services/mlkit_ocr_service.dart';
 import 'services/ocr_service.dart';
 
-void main() {
+/// Cloud sync against the Firebase project in
+/// android/app/google-services.json. Initialized once at startup when
+/// Firebase is reachable; stays null in local-only mode.
+CloudSyncService? cloudSyncService;
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // The document library is encrypted at rest by default: the store is
   // wired to an EncryptionService, which stays locked until the user
   // enters their passphrase (see UnlockLibraryScreen).
   final encryption = EncryptionService();
+  // Firebase is optional at runtime: the encrypted local library is the
+  // source of truth, so a Firebase failure must never block startup.
+  // On Android, initializeApp() reads android/app/google-services.json.
+  try {
+    await Firebase.initializeApp();
+    cloudSyncService = CloudSyncService();
+    await cloudSyncService!.initialize(encryption);
+  } catch (e) {
+    debugPrint('Firebase unavailable; continuing local-only: $e');
+    cloudSyncService = null;
+  }
   runApp(
     DocumentScannerApp(
       ocrService: MlKitOcrService(),
